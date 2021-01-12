@@ -79,16 +79,3 @@ case class Spotify(client_id: String, client_secret: String) {
     override def toString: String = track.name
   }
 }
-
-object Spotify {
-  def main(args: Array[String]): Unit = {
-    val CLIENT_ID = "f27ceb8f09e54d8286ad2fe0582aaad5"
-    val CLIENT_SECRET = "24297f6dd14a457292dc5fd0111c416b"
-
-    val api = Spotify(CLIENT_ID, CLIENT_SECRET)
-    val user = api.User("noahrosamilia")
-    println(user.name)
-    println(user.playlists.head.tracks(2).track.name)
-    println(user.playlists.head.tracks(2).added_at)
-  }
-}
