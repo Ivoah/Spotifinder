@@ -3,7 +3,9 @@ import play.api.libs.functional.syntax.toFunctionalBuilderOps
 import java.util.Date
 import play.api.libs.json._
 
-case class Spotify(client_id: String, client_secret: String) {
+import java.net.URL
+
+case class Spotify(private val client_id: String, private val client_secret: String) {
   private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
   private lazy val token: String = {
@@ -13,20 +15,31 @@ case class Spotify(client_id: String, client_secret: String) {
       data = Map("grant_type" -> "client_credentials"),
       headers = Map("Authorization" -> s"Basic $auth")
     )
-    (Json.parse(post.text) \ "access_token").as[String]
+    Json.parse(post.text)("access_token").as[String]
   }
 
   private def get(url: String): String = {
-    val request = requests.get(url, headers = Map("Authorization" -> s"Bearer $token"))
-    request.text
+    val cache = new java.io.File(s"${System.getProperty("user.home")}/Desktop/spotifyCache/${url.hashCode.toString}.json")
+    if (cache.exists) {
+      val source = io.Source.fromFile(cache)
+      val text = source.getLines().mkString
+      source.close()
+      text
+    } else {
+      val request = requests.get(url, headers = Map("Authorization" -> s"Bearer $token"))
+      val writer = new java.io.FileWriter(cache)
+      writer.write(request.text)
+      writer.close()
+      request.text
+    }
   }
 
   private implicit val userReads: Reads[User] = Json.reads[User]
   case class User(id: String) {
     private def getPlaylists(url: String = s"https://api.spotify.com/v1/users/$id/playlists"): Seq[Playlist] = {
       val jsonObj = Json.parse(get(url))
-      val playlists = (jsonObj \ "items").as[Seq[Playlist]]
-      (jsonObj \ "next").asOpt[String] match {
+      val playlists = jsonObj("items").as[Seq[Playlist]]
+      jsonObj("next").asOpt[String] match {
         case Some(next) => playlists ++ getPlaylists(next)
         case None => playlists
       }
@@ -34,26 +47,22 @@ case class Spotify(client_id: String, client_secret: String) {
 
     private lazy val jsonObj: JsValue = Json.parse(get(s"https://api.spotify.com/v1/users/$id"))
 
-    lazy val name: String = (jsonObj \ "display_name").as[String]
+    lazy val name: String = jsonObj("display_name").as[String]
     lazy val playlists: Seq[Playlist] = getPlaylists()
 
     override def toString: String = name
   }
 
-  private implicit val artistReads: Reads[Artist] = Json.reads[Artist]
-  case class Artist(id: String, name: String)
-
   private implicit val playlistReads: Reads[Playlist] = Json.reads[Playlist]
   object Playlist {
     def fromId(id: String): Playlist = {
-      val jsonObj = Json.parse(get(s"https://api.spotify.com/v1/playlists/$id?fields=id%2Cname%2Cdescription"))
-      jsonObj.as[Playlist]
+      Json.parse(get(s"https://api.spotify.com/v1/playlists/$id?fields=id%2Cname%2Cdescription")).as[Playlist]
     }
   }
   case class Playlist(id: String, name: String, description: String) {
     private def getTracks(url: String = s"https://api.spotify.com/v1/playlists/$id/tracks?items(added_by.id%2Cadded_at%2Ctrack(id%2Cname%2Calbum(id%2Cmages%2Cname)%2Cartists(id%2Cname)))%2Cnext"): Seq[PlaylistItem] = {
       val jsonObj = Json.parse(get(url))
-      val tracks = (jsonObj \ "items").as[Seq[PlaylistItem]]
+      val tracks = jsonObj("items").asOpt[Seq[PlaylistItem]].getOrElse(Seq())
       (jsonObj \ "next").asOpt[String] match {
         case Some(next) => tracks ++ getTracks(next)
         case None => tracks
@@ -64,15 +73,21 @@ case class Spotify(client_id: String, client_secret: String) {
     override def toString: String = name
   }
 
+  private implicit val urlReads: Reads[URL] = (JsPath \ "url").read[String].map(new URL(_))
   private implicit val albumReads: Reads[Album] = (
-    (JsPath \ "id").read[String] and
+//    (JsPath \ "id").read[String] and
       (JsPath \ "name").read[String] and
-      (JsPath \ "images" \ 0 \ "url").read[String]
-    )(Album.apply _)
-  case class Album(id: String, name: String, artwork: String)
+      (JsPath \ "images").read[JsValue]
+    ) { (name: String, artwork: JsValue) =>
+    Album(name, artwork.as[Seq[URL]].headOption.getOrElse(getClass.getResource("missing.png")))
+  }
+  case class Album(name: String, artwork: URL)
+
+  private implicit val artistReads: Reads[Artist] = Json.reads[Artist]
+  case class Artist(name: String)
 
   private implicit val trackReads: Reads[Track] = Json.reads[Track]
-  case class Track(id: String, name: String, album: Album, artists: Seq[Artist])
+  case class Track(name: String, album: Album, artists: Seq[Artist])
 
   private implicit val playlistItemReads: Reads[PlaylistItem] = Json.reads[PlaylistItem]
   case class PlaylistItem(track: Track, added_by: User, added_at: Date) {

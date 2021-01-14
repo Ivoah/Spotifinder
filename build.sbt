@@ -9,3 +9,10 @@ libraryDependencies ++= Seq(
   "com.typesafe.play" %% "play-json" % "2.9.0",
   "org.scala-lang.modules" %% "scala-swing" % "3.0.0"
 )
+
+Compile / run / mainClass := Some("Spotifinder")
+fork := true
+javaOptions ++= Seq(
+  "-Xdock:icon=src/main/resources/icon.png",
+  s"-Xdock:name=$name"
+)

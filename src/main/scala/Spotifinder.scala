@@ -2,6 +2,7 @@ import java.awt.Image
 import java.net.URL
 import javax.swing.ImageIcon
 import javax.swing.border.EmptyBorder
+import scala.collection.immutable.ListMap
 import scala.io.Source
 import scala.swing._
 import scala.swing.event._
@@ -13,14 +14,20 @@ object Spotifinder extends MainFrame with App {
     result
   }
 
-  val Array(client_id, client_secret) = _with(Source.fromResource("credentials.txt"), _.getLines.next.split(':'))
+  val Array(client_id, client_secret) = _with(Source.fromResource("credentials.txt"), _.getLines().next().split(':'))
   val api = Spotify(client_id, client_secret)
 
-  val users = _with(Source.fromResource("users.txt"), _.getLines.map(api.User).toSeq)
+  val users = _with(
+    Source.fromResource("users.txt"),
+    _.getLines().filter(!_.startsWith("#")).map(api.User).toSeq
+  )
 
   val privatePlaylists = new Object {
     override def toString: String = "Private playlists"
-    val playlists: Seq[api.Playlist] = _with(Source.fromResource("privatePlaylists.txt"), _.getLines.map(api.Playlist.fromId).toSeq)
+    val playlists: Seq[api.Playlist] = _with(
+      Source.fromResource("privatePlaylists.txt"),
+      _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromId).toSeq
+    )
   }
 
   val usersList = new ListView(privatePlaylists +: users) {
@@ -54,7 +61,7 @@ object Spotifinder extends MainFrame with App {
       _track = new_track
       _track match {
         case Some(track) =>
-          val icon = new ImageIcon(new URL(track.track.album.artwork))
+          val icon = new ImageIcon(track.track.album.artwork)
           labels("artwork").icon = new ImageIcon(icon.getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
           labels("name").text = track.track.name
           labels("album").text = track.track.album.name
@@ -70,7 +77,7 @@ object Spotifinder extends MainFrame with App {
       track = Some(new_track)
     }
 
-    val labels = collection.immutable.ListMap(
+    val labels: ListMap[String, Label] = collection.immutable.ListMap(
       "artwork" -> new Label {
         preferredSize = new Dimension(250, 250)
       },
@@ -86,25 +93,42 @@ object Spotifinder extends MainFrame with App {
 
   def makeSplitPanes(lists: Seq[Component]): SplitPane = {
     val emptyBorder = new EmptyBorder(0, 0, 0, 0)
+    object SplitPane {
+      def apply(left: Component, right: Component): SplitPane = new SplitPane(Orientation.Vertical, left, right) {
+        border = emptyBorder
+        continuousLayout = true
+        resizeWeight = 0.5
+      }
+    }
+
     lists match {
-      case second_last::last::Nil => new SplitPane(Orientation.Vertical,
+      case second_last::last::Nil => SplitPane(
         new ScrollPane(second_last) {border = emptyBorder},
         new ScrollPane(last) {border = emptyBorder}
-      ) {border = emptyBorder}
-      case head::tail => new SplitPane(Orientation.Vertical,
+      )
+      case head::tail => SplitPane(
         new ScrollPane(head) {border = emptyBorder},
         makeSplitPanes(tail)
-      ) {border = emptyBorder}
+      )
     }
   }
 
   val searchBar = new TextField
+  val searchButton = new Button(Action("Search") {
+    for (user <- usersList.listData; playlist <- user.playlists; track <- playlist.tracks) {
+      println(s"$user, $playlist, $track")
+    }
+  })
 
   contents = new BorderPanel {
-    layout(searchBar) = BorderPanel.Position.North
+    layout(new BoxPanel(Orientation.Horizontal) {
+      contents ++= Seq(searchBar, searchButton)
+    }) = BorderPanel.Position.North
     layout(makeSplitPanes(Seq(usersList, playlistsList, songsList, infoPanel))) = BorderPanel.Position.Center
   }
 
+  title = "Spotifinder"
+  iconImage = new ImageIcon(getClass.getResource("icon.png")).getImage
   centerOnScreen()
   open()
 }
