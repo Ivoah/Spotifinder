@@ -167,8 +167,9 @@ object Spotifinder extends MainFrame with App {
   val resultsList = new ListView[SearchResult] {
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
-      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty =>
+      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         infoPanel.track = selection.items.head.track
+      }
     }
   }
   val searchAction = Action("Search")(runInBackground {
