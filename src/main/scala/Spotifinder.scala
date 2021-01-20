@@ -159,6 +159,7 @@ object Spotifinder extends MainFrame with App {
         || track.track.artists.exists(artist => query.matches(artist.name))
         || query.matches(track.track.album.name))
     ) yield SearchResult(user, playlist, track)
+    tabView.pages(1).title = s"Search results (${resultsList.listData.length})"
     tabView.selection.index = 1
   })
   val searchBar: TextField = new TextField {action = searchAction}
