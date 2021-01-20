@@ -11,6 +11,11 @@ libraryDependencies ++= Seq(
   "com.github.weisj" % "darklaf-core" % "2.5.4"
 )
 
+scalacOptions ++= Seq(
+  "-deprecation",
+  "-feature"
+)
+
 fork := true
 javaOptions ++= Seq(
   "-Xdock:icon=src/main/resources/icon.png",

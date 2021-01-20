@@ -1,11 +1,17 @@
+import Spotifinder.api
+
 import java.awt.Image
 import javax.swing.ImageIcon
 import javax.swing.border.EmptyBorder
 import scala.io.Source
 import scala.swing._
 import scala.swing.event._
-
 import com.github.weisj.darklaf.LafManager
+import com.github.weisj.darklaf.settings.ThemeSettings
+
+import java.io.{File, FileWriter, PrintWriter}
+import javax.swing.table.AbstractTableModel
+import scala.util.Try
 
 object Spotifinder extends MainFrame with App {
   LafManager.installTheme(LafManager.getPreferredThemeStyle)
@@ -18,17 +24,26 @@ object Spotifinder extends MainFrame with App {
     result
   }
 
+  val playlistsFile = new File(s"${System.getProperty("user.home")}/Library/Application Support/Spotifinder/privatePlaylists.txt")
+  val usersFile = new File(s"${System.getProperty("user.home")}/Library/Application Support/Spotifinder/users.txt")
+
+
   val emptyBorder = new EmptyBorder(0, 0, 0, 0)
   val gear = new ImageIcon(getClass.getResource("gear.gif"))
 
+  var queue = 0
   def runInBackground(block: => Unit): Unit = {
     new Thread {
       override def run(): Unit = {
         val font = searchButton.font
         searchButton.icon = gear
+        queue += 1
         block
-        searchButton.icon = null
-        searchButton.font = font
+        queue -= 1
+        if (queue == 0) {
+          searchButton.icon = null
+          searchButton.font = font
+        }
       }
     }.start()
   }
@@ -67,43 +82,51 @@ object Spotifinder extends MainFrame with App {
     override def toString: String = s"$user > $playlist > $track"
   }
 
-  val users = _with(
-    Source.fromResource("users.txt"),
-    _.getLines().filter(!_.startsWith("#")).map(api.User).toSeq
-  )
-
-  val privatePlaylists = new api.User("") {
-    override lazy val name = "Private playlists"
-    override lazy val playlists: Seq[api.Playlist] = _with(
-      Source.fromResource("privatePlaylists.txt"),
-      _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromId).toSeq
-    )
+  object PrivatePlaylists {
+    def apply(playlists: Seq[api.Playlist]) = new PrivatePlaylists(playlists)
   }
+  class PrivatePlaylists(_playlists: Seq[api.Playlist]) extends api.User("") {
+    override val name = "Private playlists"
+    override lazy val playlists: Seq[api.Playlist] = _playlists
+  }
+
+  var privatePlaylists = PrivatePlaylists(Try(_with(
+    Source.fromFile(playlistsFile),
+    _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromId).toSeq
+  )).getOrElse(Seq()))
+
+  var users = Try(_with(
+    Source.fromFile(usersFile),
+    _.getLines().filter(!_.startsWith("#")).map(api.User.apply).toSeq
+  )).getOrElse(Seq())
 
   val usersList = new ListView(privatePlaylists +: users) {
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
-      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty =>
+      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         playlistsList.listData = selection.items.head.playlists
         songsList.listData = Seq()
         infoPanel.track = None
+      }
     }
   }
 
   val playlistsList = new ListView[api.Playlist]() {
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
-      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty =>
+      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         songsList.listData = selection.items.head.tracks
         infoPanel.track = None
+      }
     }
   }
 
   val songsList = new ListView[api.PlaylistItem]() {
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
-      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty =>
+      case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         infoPanel.track = selection.items.head
+      }
     }
   }
 
@@ -115,7 +138,7 @@ object Spotifinder extends MainFrame with App {
     def track_=(new_track: Option[api.PlaylistItem]): Unit = {
       _track = new_track
       _track match {
-        case Some(track) => runInBackground {
+        case Some(track) =>
           val icon = new ImageIcon(track.track.album.artwork)
           artwork.icon = new ImageIcon(icon.getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
           labels("Name").text = track.track.name
@@ -123,7 +146,6 @@ object Spotifinder extends MainFrame with App {
           labels("Artists").text = track.track.artists.map(_.name).mkString(", ")
           labels("Added by").text = track.added_by.name
           labels("Added at").text = track.added_at.toString
-        }
         case None =>
           artwork.icon = missing
           labels.foreach {case (name, label) => label.text = name}
@@ -134,9 +156,9 @@ object Spotifinder extends MainFrame with App {
     }
 
     private val artwork = new Label {icon = missing}
-    private val labels: collection.immutable.ListMap[String, Label] = Seq(
+    private val labels: collection.immutable.SeqMap[String, Label] = Seq(
       "Name", "Album", "Artists", "Added by", "Added at"
-    ).map(name => name -> new Label(name)).to(collection.immutable.ListMap)
+    ).map(name => name -> new Label(name)).to(collection.immutable.SeqMap)
 
     contents += artwork
     contents ++= labels.values
@@ -183,6 +205,102 @@ object Spotifinder extends MainFrame with App {
       continuousLayout = true
       resizeWeight = 1
     }) = BorderPanel.Position.Center
+  }
+
+  class EditDialog[A <: api.SpotifyItem](_title: String, _factory: String => A, var data: collection.mutable.Seq[A], _update: Seq[A] => Unit) extends Dialog(Spotifinder.this) {
+    title = _title
+    modal = true
+    contents = ScrollPane(new Table {
+      selection.elementMode = Table.ElementMode.None
+      model = new AbstractTableModel {
+        def getRowCount: Int = data.length + 1
+        def getColumnCount: Int = 2
+        override def getColumnName(columnIndex: Int): String = Seq("name", "id")(columnIndex)
+        override def isCellEditable(rowIndex: Int, columnIndex: Int): Boolean = columnIndex == 1
+        def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef = {
+          if (rowIndex == data.length) ""
+          else Seq(data(rowIndex).name, data(rowIndex).id)(columnIndex)
+        }
+        override def setValueAt(idAny: Any, rowIndex: Int, columnIndex: Int): Unit = {
+          val id = idAny.asInstanceOf[String]
+          val itemOption =
+            if (id.isEmpty) None
+            else Try(_factory(id)).toOption
+
+          itemOption match {
+            case Some(item) if rowIndex < data.length =>
+              data(rowIndex) = item
+            case Some(item) =>
+              data :+= item
+            case None if rowIndex < data.length =>
+              data = data.zipWithIndex.collect {case (u, i) if i != rowIndex => u}
+            case _ =>
+          }
+
+          _update(data.toSeq)
+          usersList.listData = privatePlaylists +: users
+          playlistsList.listData = Seq()
+          songsList.listData = Seq()
+          infoPanel.track = None
+        }
+      }
+    })
+  }
+
+  menuBar = new MenuBar() {
+    contents ++= Seq(
+      new Menu("File") {
+        contents ++= Seq(
+          new MenuItem(Action("Edit private playlists...") {
+            new EditDialog[api.Playlist](
+              "Edit private playlists",
+              api.Playlist.fromId,
+              privatePlaylists.playlists.to(collection.mutable.Seq),
+              data => privatePlaylists = PrivatePlaylists(data)
+            ).open()
+          }),
+          new MenuItem(Action("Edit users...") {
+            new EditDialog[api.User](
+              "Edit users",
+              api.User.apply,
+              users.to(collection.mutable.Seq),
+              data => users = data
+            ).open()
+          }),
+          new MenuItem(Action("Save lists...") {
+            if (Dialog.showConfirmation(
+              this,
+              "Are you sure you want to overwrite your saved playlists and users?",
+              "Save lists",
+              messageType = Dialog.Message.Warning
+            ) == Dialog.Result.Yes) {
+              playlistsFile.getParentFile.mkdirs()
+              val playlistsWriter = new PrintWriter(playlistsFile)
+              privatePlaylists.playlists.foreach(pl => playlistsWriter.println(pl.id))
+              playlistsWriter.close()
+
+              usersFile.getParentFile.mkdirs()
+              val usersWriter = new PrintWriter(usersFile)
+              users.foreach(pl => usersWriter.println(pl.id))
+              usersWriter.close()
+            }
+          })
+        )
+      },
+      new Menu("Settings") {
+        contents ++= Seq(
+          new MenuItem(Action("Clear cache...") {
+            if (Dialog.showConfirmation(
+              this,
+              "Are you sure you want to clear the cache?",
+              "Clear cache",
+              messageType = Dialog.Message.Warning
+            ) == Dialog.Result.Yes) api.clearCache()
+          }),
+          new MenuItem(Action("Change theme...") {ThemeSettings.showSettingsDialog(this.peer)})
+        )
+      }
+    )
   }
 
   title = "Spotifinder"

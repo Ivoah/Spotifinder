@@ -4,6 +4,7 @@ import java.util.Date
 import play.api.libs.json._
 
 import java.net.URL
+import java.io.File
 
 case class Spotify(private val client_id: String, private val client_secret: String) {
   private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'")
@@ -18,8 +19,11 @@ case class Spotify(private val client_id: String, private val client_secret: Str
     Json.parse(post.text)("access_token").as[String]
   }
 
+  private val cacheDir = new File(s"${System.getProperty("user.home")}/Library/Caches/net.ivoah.Spotifinder")
+  if (!cacheDir.exists) cacheDir.mkdirs()
   private def get(url: String): String = {
-    val cache = new java.io.File(s"${System.getProperty("user.home")}/Desktop/spotifyCache/${url.hashCode.toString}.json")
+    val prefix = "https://" // Putting this inline breaks IntelliJ
+    val cache = new File(s"$cacheDir/${url.stripPrefix(prefix)}.json")
     if (cache.exists) {
       val source = io.Source.fromFile(cache)
       val text = source.getLines().mkString
@@ -27,6 +31,7 @@ case class Spotify(private val client_id: String, private val client_secret: Str
       text
     } else {
       val request = requests.get(url, headers = Map("Authorization" -> s"Bearer $token"))
+      cache.getParentFile.mkdirs()
       val writer = new java.io.FileWriter(cache)
       writer.write(request.text)
       writer.close()
@@ -34,8 +39,25 @@ case class Spotify(private val client_id: String, private val client_secret: Str
     }
   }
 
+  def clearCache(): Unit = {
+    def delete(f: File): Unit = {
+      if (f.isDirectory) f.listFiles.foreach(delete)
+      f.delete()
+    }
+    delete(cacheDir)
+  }
+
+  trait SpotifyItem {
+    val id: String
+    val name: String
+  }
+
   private implicit val userReads: Reads[User] = Json.reads[User]
-  case class User(id: String) {
+  object User {
+    def apply(id: String) = new User(id)
+    def unapply(user: User): Option[String] = Some(user.id)
+  }
+  class User(val id: String) extends SpotifyItem {
     private def getPlaylists(url: String = s"https://api.spotify.com/v1/users/$id/playlists"): Seq[Playlist] = {
       val jsonObj = Json.parse(get(url))
       val playlists = jsonObj("items").as[Seq[Playlist]]
@@ -45,10 +67,12 @@ case class Spotify(private val client_id: String, private val client_secret: Str
       }
     }
 
-    private lazy val jsonObj: JsValue = Json.parse(get(s"https://api.spotify.com/v1/users/$id"))
+    private val jsonObj: JsValue =
+      if (id.nonEmpty) Json.parse(get(s"https://api.spotify.com/v1/users/$id"))
+      else JsObject(Seq("display_name" -> JsString("None")))
 
-    lazy val name: String = jsonObj("display_name").as[String]
-    lazy val playlists: Seq[Playlist] = getPlaylists()
+    val name: String = jsonObj("display_name").as[String]
+    lazy val playlists: Seq[Playlist] = if (id.nonEmpty) getPlaylists() else Seq()
 
     override def toString: String = name
   }
@@ -56,11 +80,11 @@ case class Spotify(private val client_id: String, private val client_secret: Str
   private implicit val playlistReads: Reads[Playlist] = Json.reads[Playlist]
   object Playlist {
     def fromId(id: String): Playlist = {
-      Json.parse(get(s"https://api.spotify.com/v1/playlists/$id?fields=id%2Cname%2Cdescription")).as[Playlist]
+      Json.parse(get(s"https://api.spotify.com/v1/playlists/$id")).as[Playlist]
     }
   }
-  case class Playlist(id: String, name: String, description: String) {
-    private def getTracks(url: String = s"https://api.spotify.com/v1/playlists/$id/tracks?items(added_by.id%2Cadded_at%2Ctrack(id%2Cname%2Calbum(id%2Cmages%2Cname)%2Cartists(id%2Cname)))%2Cnext"): Seq[PlaylistItem] = {
+  case class Playlist(id: String, name: String, description: String) extends SpotifyItem {
+    private def getTracks(url: String = s"https://api.spotify.com/v1/playlists/$id/tracks"): Seq[PlaylistItem] = {
       val jsonObj = Json.parse(get(url))
       val tracks = jsonObj("items").asOpt[Seq[PlaylistItem]].getOrElse(Seq())
       (jsonObj \ "next").asOpt[String] match {
