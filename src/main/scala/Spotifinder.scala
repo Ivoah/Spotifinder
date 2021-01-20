@@ -5,16 +5,32 @@ import scala.io.Source
 import scala.swing._
 import scala.swing.event._
 
-object Spotifinder extends MainFrame with App {
-  val Array(client_id, client_secret) = _with(Source.fromResource("credentials.txt"), _.getLines().next().split(':'))
-  val api = Spotify(client_id, client_secret)
+import com.github.weisj.darklaf.LafManager
 
-  val emptyBorder = new EmptyBorder(0, 0, 0, 0)
-  val gear = new ImageIcon(getClass.getResource("gear.gif"))
+object Spotifinder extends MainFrame with App {
+  LafManager.installTheme(LafManager.getPreferredThemeStyle)
+  LafManager.enabledPreferenceChangeReporting(true)
+  LafManager.addThemePreferenceChangeListener(e => LafManager.installTheme(e.getPreferredThemeStyle))
+
   def _with[A](source: Source, fn: Source => A): A = {
     val result = fn(source)
     source.close()
     result
+  }
+
+  val emptyBorder = new EmptyBorder(0, 0, 0, 0)
+  val gear = new ImageIcon(getClass.getResource("gear.gif"))
+
+  def runInBackground(block: => Unit): Unit = {
+    new Thread {
+      override def run(): Unit = {
+        val font = searchButton.font
+        searchButton.icon = gear
+        block
+        searchButton.icon = null
+        searchButton.font = font
+      }
+    }.start()
   }
 
   object ScrollPane {
@@ -43,6 +59,9 @@ object Spotifinder extends MainFrame with App {
       )
     }
   }
+
+  val Seq(client_id, client_secret) = _with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
+  val api = Spotify(client_id, client_secret)
 
   case class SearchResult(user: api.User, playlist: api.Playlist, track: api.PlaylistItem) {
     override def toString: String = s"$user > $playlist > $track"
@@ -90,39 +109,37 @@ object Spotifinder extends MainFrame with App {
 
   val infoPanel = new BoxPanel(Orientation.Vertical) {
     private val missing = new ImageIcon(new ImageIcon(getClass.getResource("missing.png")).getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
+
     private var _track: Option[api.PlaylistItem] = None
     def track: Option[api.PlaylistItem] = _track
     def track_=(new_track: Option[api.PlaylistItem]): Unit = {
       _track = new_track
       _track match {
-        case Some(track) =>
+        case Some(track) => runInBackground {
           val icon = new ImageIcon(track.track.album.artwork)
-          labels("artwork")._1.icon = new ImageIcon(icon.getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
-          labels("name")._1.text = track.track.name
-          labels("album")._1.text = track.track.album.name
-          labels("artists")._1.text = track.track.artists.map(_.name).mkString(", ")
-          labels("added_by")._1.text = track.added_by.name
-          labels("added_at")._1.text = track.added_at.toString
+          artwork.icon = new ImageIcon(icon.getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
+          labels("Name").text = track.track.name
+          labels("Album").text = track.track.album.name
+          labels("Artists").text = track.track.artists.map(_.name).mkString(", ")
+          labels("Added by").text = track.added_by.name
+          labels("Added at").text = track.added_at.toString
+        }
         case None =>
-          labels("artwork")._1.icon = missing
-          labels.values.foreach {case (label, name) => label.text = name}
+          artwork.icon = missing
+          labels.foreach {case (name, label) => label.text = name}
       }
     }
     def track_=(new_track: api.PlaylistItem): Unit = {
       track = Some(new_track)
     }
 
-    val labels: collection.immutable.ListMap[String, (Label, String)] = collection.immutable.ListMap(
-      "artwork" -> (new Label {icon = missing}, "")
-    ) ++ Seq(
-      "name" -> "Name",
-      "album" -> "Album",
-      "artists" -> "Artists",
-      "added_by" -> "Added by",
-      "added_at" -> "Added at"
-    ).map {case (key, name) => key -> (new Label(name), name)}.toMap
+    private val artwork = new Label {icon = missing}
+    private val labels: collection.immutable.ListMap[String, Label] = Seq(
+      "Name", "Album", "Artists", "Added by", "Added at"
+    ).map(name => name -> new Label(name)).to(collection.immutable.ListMap)
 
-    contents ++= labels.values.map(_._1)
+    contents += artwork
+    contents ++= labels.values
   }
 
   val resultsList = new ListView[SearchResult] {
@@ -132,27 +149,18 @@ object Spotifinder extends MainFrame with App {
         infoPanel.track = selection.items.head.track
     }
   }
-  val searchAction = Action("Search") {
-    val thread = new Thread {
-      override def run: Unit = {
-        val font = searchButton.font
-        searchButton.icon = gear
-        val query: String = searchBar.text.toLowerCase
-        resultsList.listData = for (
-          user <- usersList.listData;
-          playlist <- user.playlists;
-          track <- playlist.tracks
-          if (track.track.name.toLowerCase.contains(query)
-            || track.track.artists.exists(_.name.toLowerCase.contains(query))
-            || track.track.album.name.toLowerCase.contains(query))
-        ) yield SearchResult(user, playlist, track)
-        tabView.selection.index = 1
-        searchButton.icon = null
-        searchButton.font = font
-      }
-    }
-    thread.start()
-  }
+  val searchAction = Action("Search")(runInBackground {
+    val query = s"(?i:${searchBar.text})".r.unanchored
+    resultsList.listData = for (
+      user <- usersList.listData;
+      playlist <- user.playlists;
+      track <- playlist.tracks
+      if (query.matches(track.track.name)
+        || track.track.artists.exists(artist => query.matches(artist.name))
+        || query.matches(track.track.album.name))
+    ) yield SearchResult(user, playlist, track)
+    tabView.selection.index = 1
+  })
   val searchBar: TextField = new TextField {action = searchAction}
   val searchButton: Button = new Button(searchAction)
 
