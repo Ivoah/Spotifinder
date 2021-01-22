@@ -9,7 +9,7 @@ import java.io.File
 case class Spotify(private val client_id: String, private val client_secret: String) {
   private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
-  private lazy val token: String = {
+  private val token: String = {
     val auth = java.util.Base64.getEncoder.encodeToString(s"$client_id:$client_secret".getBytes)
     val post = requests.post(
       "https://accounts.spotify.com/api/token",
@@ -19,20 +19,19 @@ case class Spotify(private val client_id: String, private val client_secret: Str
     Json.parse(post.text)("access_token").as[String]
   }
 
-  private val cacheDir = new File(s"${System.getProperty("user.home")}/Library/Caches/net.ivoah.Spotifinder")
-  if (!cacheDir.exists) cacheDir.mkdirs()
+  if (!Paths.cacheDir.exists) Paths.cacheDir.mkdirs()
   private def get(url: String): String = {
     val prefix = "https://" // Putting this inline breaks IntelliJ
-    val cache = new File(s"$cacheDir/${url.stripPrefix(prefix)}.json")
-    if (cache.exists) {
-      val source = io.Source.fromFile(cache)
+    val cacheFile = new File(s"${Paths.cacheDir}/${url.stripPrefix(prefix)}.json")
+    if (cacheFile.exists) {
+      val source = io.Source.fromFile(cacheFile)
       val text = source.getLines().mkString
       source.close()
       text
     } else {
       val request = requests.get(url, headers = Map("Authorization" -> s"Bearer $token"))
-      cache.getParentFile.mkdirs()
-      val writer = new java.io.FileWriter(cache)
+      cacheFile.getParentFile.mkdirs()
+      val writer = new java.io.FileWriter(cacheFile)
       writer.write(request.text)
       writer.close()
       request.text
@@ -44,7 +43,7 @@ case class Spotify(private val client_id: String, private val client_secret: Str
       if (f.isDirectory) f.listFiles.foreach(delete)
       f.delete()
     }
-    delete(cacheDir)
+    delete(Paths.cacheDir)
   }
 
   trait SpotifyItem {

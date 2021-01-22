@@ -24,9 +24,8 @@ object Spotifinder extends MainFrame with App {
     result
   }
 
-  val playlistsFile = new File(s"${System.getProperty("user.home")}/Library/Application Support/Spotifinder/privatePlaylists.txt")
-  val usersFile = new File(s"${System.getProperty("user.home")}/Library/Application Support/Spotifinder/users.txt")
-
+  val playlistsFile = new File(s"${Paths.dataDir}/privatePlaylists.txt")
+  val usersFile = new File(s"${Paths.dataDir}/users.txt")
 
   val emptyBorder = new EmptyBorder(0, 0, 0, 0)
   val gear = new ImageIcon(getClass.getResource("gear.gif"))
