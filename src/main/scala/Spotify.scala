@@ -1,41 +1,157 @@
-import play.api.libs.functional.syntax.toFunctionalBuilderOps
+import play.api.libs.functional.syntax.{toFunctionalBuilderOps, unlift}
 
 import java.util.Date
 import play.api.libs.json._
 
-import java.net.URL
-import java.io.File
+import java.util.Base64
+import java.security.MessageDigest
+import java.net._
+import java.io._
+import scala.io._
+import scala.util.{Random, Try}
+import java.time.Instant
 
-case class Spotify(private val client_id: String, private val client_secret: String) {
+case class Spotify(private val client_id: String) {
   private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'")
 
-  private val token: String = {
-    val auth = java.util.Base64.getEncoder.encodeToString(s"$client_id:$client_secret".getBytes)
+  private implicit val tokenReads: Reads[Token] = (
+    (JsPath \ "access_token").read[String] and
+      (JsPath \ "token_type").read[String] and
+      (JsPath \ "scope").read[String] and
+      (JsPath \ "expires_in").read[Int] and
+      (JsPath \ "refresh_token").read[String] and
+      (JsPath \ "expires_on").readNullable[Long]
+    ) { (access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String, expires_on: Option[Long]) =>
+    expires_on match {
+      case Some(timestamp) => Token(access_token, token_type, scope, expires_in, refresh_token)(timestamp)
+      case None => Token(access_token, token_type, scope, expires_in, refresh_token)()
+    }
+  }
+  private implicit val tokenWrites: Writes[Token] = (
+    (JsPath \ "access_token").write[String] and
+      (JsPath \ "token_type").write[String] and
+      (JsPath \ "scope").write[String] and
+      (JsPath \ "expires_in").write[Int] and
+      (JsPath \ "refresh_token").write[String] and
+      (JsPath \ "expires_on").write[Long]
+    )(unlift {token: Token =>
+    Some((token.access_token, token.token_type, token.scope, token.expires_in, token.refresh_token, token.expires_on))
+  })
+  private case class Token(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String)(val expires_on: Long = Instant.now.getEpochSecond + expires_in) {
+    override def toString: String = access_token
+  }
+
+  private var _token: Option[Token] = Try {
+    Util._with(Source.fromFile(s"${Paths.cacheDir}/token.json"), s => Json.parse(s.mkString).as[Token])
+  }.toOption
+  private def token: Token = {
+    _token match {
+      case Some(token) if Instant.now.getEpochSecond < token.expires_on =>
+        println("Using old token")
+        token
+      case Some(token) =>
+        println("Refreshing token")
+        val new_token = refresh_token(token)
+        _token = Some(new_token)
+        cache("token.json", Json.prettyPrint(Json.toJson(token)), force = true)
+        new_token
+      case None =>
+        println("Getting new token")
+        val token = get_token()
+        _token = Some(token)
+        cache("token.json", Json.prettyPrint(Json.toJson(token)), force = true)
+        token
+    }
+  }
+
+  private def refresh_token(token: Token): Token = {
+    try {
+      val post = requests.post(
+        "https://accounts.spotify.com/api/token",
+        data = Map(
+          "grant_type" -> "refresh_token",
+          "refresh_token" -> token.refresh_token,
+          "client_id" -> client_id
+        )
+      )
+      Json.parse(post.text).as[Token]
+    } catch {
+      case e: requests.RequestFailedException if e.response.statusCode == 400 => get_token()
+    }
+  }
+
+  private def get_token(): Token = {
+    val code_verifier = Random.alphanumeric.take(64).mkString
+    val code_challenge = Base64.getUrlEncoder.withoutPadding.encodeToString(MessageDigest.getInstance("SHA-256").digest(code_verifier.getBytes))
+
+    java.awt.Desktop.getDesktop.browse(new URI(
+      s"https://accounts.spotify.com/authorize?${Map(
+        "client_id" -> client_id,
+        "response_type" -> "code",
+        "redirect_uri" -> "http://localhost:5122",
+        "code_challenge_method" -> "S256",
+        "code_challenge" -> code_challenge
+      ).map{case (key, value) => s"$key=${URLEncoder.encode(value)}"}.mkString("&")}"
+    ))
+    val server = new ServerSocket(5122)
+    val socket = server.accept()
+    val in = new BufferedSource(socket.getInputStream)
+    val out = new PrintWriter(socket.getOutputStream)
+    val GET = in.getLines().next()
+    out.write(
+      """HTTP/1.1 200 OK
+        |Content-Type: text/html
+        |
+        |<html>
+        |    <head>
+        |        <title>Success!</title>
+        |    </head>
+        |    <body>
+        |        You can now close the webpage
+        |    </body>
+        |</html>
+        |""".stripMargin
+    )
+    out.flush()
+    socket.close()
+    server.close()
+
+    val code = raw"GET /\?code=(.*) HTTP".r.findFirstMatchIn(GET).get.group(1)
+
     val post = requests.post(
       "https://accounts.spotify.com/api/token",
-      data = Map("grant_type" -> "client_credentials"),
-      headers = Map("Authorization" -> s"Basic $auth")
+      data = Map(
+        "client_id" -> client_id,
+        "grant_type" -> "authorization_code",
+        "code" -> code,
+        "redirect_uri" -> "http://localhost:5122",
+        "code_verifier" -> code_verifier
+      )
     )
-    Json.parse(post.text)("access_token").as[String]
+    Json.parse(post.text).as[Token]
   }
 
   if (!Paths.cacheDir.exists) Paths.cacheDir.mkdirs()
-  private def get(url: String): String = {
-    val prefix = "https://" // Putting this inline breaks IntelliJ
-    val cacheFile = new File(s"${Paths.cacheDir}/${url.stripPrefix(prefix)}.json")
-    if (cacheFile.exists) {
+  private def cache(filename: String, missing: => String, force: Boolean = false): String = {
+    val cacheFile = new File(s"${Paths.cacheDir}/$filename")
+    if (cacheFile.exists && !force) {
       val source = io.Source.fromFile(cacheFile)
       val text = source.getLines().mkString
       source.close()
       text
     } else {
-      val request = requests.get(url, headers = Map("Authorization" -> s"Bearer $token"))
+      val text = missing
       cacheFile.getParentFile.mkdirs()
       val writer = new java.io.FileWriter(cacheFile)
-      writer.write(request.text)
+      writer.write(text)
       writer.close()
-      request.text
+      text
     }
+  }
+
+  private def get(url: String): String = {
+    val prefix = "https://" // Putting this inline breaks IntelliJ
+    cache(s"${url.stripPrefix(prefix)}.json", requests.get(url, headers = Map("Authorization" -> s"Bearer $token")).text)
   }
 
   def clearCache(): Unit = {

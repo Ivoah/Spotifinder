@@ -1,5 +1,3 @@
-import Spotifinder.api
-
 import java.awt.Image
 import javax.swing.ImageIcon
 import javax.swing.border.EmptyBorder
@@ -17,12 +15,6 @@ object Spotifinder extends MainFrame with App {
   LafManager.installTheme(LafManager.getPreferredThemeStyle)
   LafManager.enabledPreferenceChangeReporting(true)
   LafManager.addThemePreferenceChangeListener(e => LafManager.installTheme(e.getPreferredThemeStyle))
-
-  def _with[A](source: Source, fn: Source => A): A = {
-    val result = fn(source)
-    source.close()
-    result
-  }
 
   val playlistsFile = new File(s"${Paths.dataDir}/privatePlaylists.txt")
   val usersFile = new File(s"${Paths.dataDir}/users.txt")
@@ -74,8 +66,8 @@ object Spotifinder extends MainFrame with App {
     }
   }
 
-  val Seq(client_id, client_secret) = _with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
-  val api = Spotify(client_id, client_secret)
+  val Seq(client_id, client_secret) = Util._with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
+  val api = Spotify(client_id)
 
   case class SearchResult(user: api.User, playlist: api.Playlist, track: api.PlaylistItem) {
     override def toString: String = s"$user > $playlist > $track"
@@ -89,12 +81,12 @@ object Spotifinder extends MainFrame with App {
     override lazy val playlists: Seq[api.Playlist] = _playlists
   }
 
-  var privatePlaylists = PrivatePlaylists(Try(_with(
+  var privatePlaylists = PrivatePlaylists(Try(Util._with(
     Source.fromFile(playlistsFile),
     _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromId).toSeq
   )).getOrElse(Seq()))
 
-  var users = Try(_with(
+  var users = Try(Util._with(
     Source.fromFile(usersFile),
     _.getLines().filter(!_.startsWith("#")).map(api.User.apply).toSeq
   )).getOrElse(Seq())
