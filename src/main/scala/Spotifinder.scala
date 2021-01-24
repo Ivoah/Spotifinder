@@ -7,7 +7,7 @@ import scala.swing.event._
 import com.github.weisj.darklaf.LafManager
 import com.github.weisj.darklaf.settings.ThemeSettings
 
-import java.io.{File, FileWriter, PrintWriter}
+import java.io.{File, PrintWriter}
 import javax.swing.table.AbstractTableModel
 import scala.util.Try
 

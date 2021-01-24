@@ -34,9 +34,7 @@ case class Spotify(private val client_id: String) {
       (JsPath \ "expires_in").write[Int] and
       (JsPath \ "refresh_token").write[String] and
       (JsPath \ "expires_on").write[Long]
-    )(unlift {token: Token =>
-    Some((token.access_token, token.token_type, token.scope, token.expires_in, token.refresh_token, token.expires_on))
-  })
+    ){token: Token => (token.access_token, token.token_type, token.scope, token.expires_in, token.refresh_token, token.expires_on)}
   private case class Token(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String)(val expires_on: Long = Instant.now.getEpochSecond + expires_in) {
     override def toString: String = access_token
   }
@@ -46,17 +44,13 @@ case class Spotify(private val client_id: String) {
   }.toOption
   private def token: Token = {
     _token match {
-      case Some(token) if Instant.now.getEpochSecond < token.expires_on =>
-        println("Using old token")
-        token
+      case Some(token) if Instant.now.getEpochSecond < token.expires_on => token
       case Some(token) =>
-        println("Refreshing token")
         val new_token = refresh_token(token)
         _token = Some(new_token)
         cache("token.json", Json.prettyPrint(Json.toJson(token)), force = true)
         new_token
       case None =>
-        println("Getting new token")
         val token = get_token()
         _token = Some(token)
         cache("token.json", Json.prettyPrint(Json.toJson(token)), force = true)
@@ -76,7 +70,10 @@ case class Spotify(private val client_id: String) {
       )
       Json.parse(post.text).as[Token]
     } catch {
-      case e: requests.RequestFailedException if e.response.statusCode == 400 => get_token()
+      case e: requests.RequestFailedException if e.response.statusCode == 400 =>
+        println("Error refreshing token")
+        e.printStackTrace()
+        get_token()
     }
   }
 
@@ -91,7 +88,7 @@ case class Spotify(private val client_id: String) {
         "redirect_uri" -> "http://localhost:5122",
         "code_challenge_method" -> "S256",
         "code_challenge" -> code_challenge
-      ).map{case (key, value) => s"$key=${URLEncoder.encode(value)}"}.mkString("&")}"
+      ).map{case (key, value) => s"$key=${URLEncoder.encode(value, "UTF-8")}"}.mkString("&")}"
     ))
     val server = new ServerSocket(5122)
     val socket = server.accept()
