@@ -7,17 +7,16 @@ import scala.swing.event._
 import com.github.weisj.darklaf.LafManager
 import com.github.weisj.darklaf.settings.ThemeSettings
 
-import java.io.{File, PrintWriter}
-import javax.swing.table.AbstractTableModel
-import scala.util.Try
+import java.io.PrintWriter
+import scala.util.{Random, Try}
 
 object Spotifinder extends MainFrame with App {
   LafManager.installTheme(LafManager.getPreferredThemeStyle)
   LafManager.enabledPreferenceChangeReporting(true)
   LafManager.addThemePreferenceChangeListener(e => LafManager.installTheme(e.getPreferredThemeStyle))
 
-  val playlistsFile = new File(s"${Paths.dataDir}/privatePlaylists.txt")
-  val usersFile = new File(s"${Paths.dataDir}/users.txt")
+  val playlistsFile = MyPaths.dataDir.resolve("privatePlaylists.txt").toFile
+  val usersFile = MyPaths.dataDir.resolve("users.txt").toFile
 
   val emptyBorder = new EmptyBorder(0, 0, 0, 0)
   val gear = new ImageIcon(getClass.getResource("gear.gif"))
@@ -67,9 +66,9 @@ object Spotifinder extends MainFrame with App {
   }
 
   val Seq(client_id, client_secret) = Util._with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
-  val api = Spotify(client_id)
+  val api = Spotify(client_id, "user-modify-playback-state")
 
-  case class SearchResult(user: api.User, playlist: api.Playlist, track: api.PlaylistItem) {
+  case class SearchResult(user: api.User, playlist: api.Playlist, track: api.PlaylistItem, index: Int) {
     override def toString: String = s"$user > $playlist > $track"
   }
 
@@ -83,12 +82,12 @@ object Spotifinder extends MainFrame with App {
 
   var privatePlaylists = PrivatePlaylists(Try(Util._with(
     Source.fromFile(playlistsFile),
-    _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromId).toSeq
+    _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromURI).toSeq
   )).getOrElse(Seq()))
 
   var users = Try(Util._with(
     Source.fromFile(usersFile),
-    _.getLines().filter(!_.startsWith("#")).map(api.User.apply).toSeq
+    _.getLines().filter(!_.startsWith("#")).map(api.User.fromURI).toSeq
   )).getOrElse(Seq())
 
   val usersList = new ListView(privatePlaylists +: users) {
@@ -96,29 +95,78 @@ object Spotifinder extends MainFrame with App {
     selection.reactions += {
       case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         playlistsList.listData = selection.items.head.playlists
-        songsList.listData = Seq()
+        songsList.playlist = None
         infoPanel.track = None
       }
     }
   }
 
   val playlistsList = new ListView[api.Playlist]() {
+    private val popupMenu = new PopupMenu {
+      contents ++= Seq(
+        new MenuItem(Action("Play") {
+          api.play(selection.items.head, 0)
+        }),
+        new MenuItem(Action("Shuffle") {
+          api.play(selection.items.head, Random.nextInt(selection.items.head.tracks.length))
+        })
+      )
+    }
+
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
       case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
-        songsList.listData = selection.items.head.tracks
+        songsList.playlist = selection.items.head
         infoPanel.track = None
       }
     }
+
+    mouse.clicks.reactions += {
+      case MouseClicked(source, point, modifiers, clicks, triggersPopup) if modifiers == 256 =>
+        selectIndices(this.peer.locationToIndex(point))
+        popupMenu.show(source, point.x, point.y)
+    }
+    listenTo(mouse.clicks)
   }
 
   val songsList = new ListView[api.PlaylistItem]() {
+    private var _playlist: Option[api.Playlist] = None
+    def playlist: Option[api.Playlist] = _playlist
+    def playlist_=(new_playlist: Option[api.Playlist]): Unit = {
+      _playlist = new_playlist
+      _playlist match {
+        case Some(playlist) => listData = playlist.tracks
+        case None => listData = Seq()
+      }
+    }
+    def playlist_=(new_playlist: api.Playlist): Unit = {
+      playlist = Some(new_playlist)
+    }
+
+    private val popupMenu = new PopupMenu {
+      contents ++= Seq(
+        new MenuItem(Action("Play") {
+          api.play(playlist.get, selection.leadIndex)
+        }),
+        new MenuItem(Action("Add to queue") {
+          api.queue(selection.items.head.track)
+        })
+      )
+    }
+
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
       case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         infoPanel.track = selection.items.head
       }
     }
+
+    mouse.clicks.reactions += {
+      case MouseClicked(source, point, modifiers, clicks, triggersPopup) if modifiers == 256 =>
+        selectIndices(this.peer.locationToIndex(point))
+        popupMenu.show(source, point.x, point.y)
+    }
+    listenTo(mouse.clicks)
   }
 
   val infoPanel = new BoxPanel(Orientation.Vertical) {
@@ -156,23 +204,41 @@ object Spotifinder extends MainFrame with App {
   }
 
   val resultsList = new ListView[SearchResult] {
+    private val popupMenu = new PopupMenu {
+      contents ++= Seq(
+        new MenuItem(Action("Play") {
+          api.play(selection.items.head.playlist, selection.items.head.index)
+        }),
+        new MenuItem(Action("Add to queue") {
+          api.queue(selection.items.head.track.track)
+        })
+      )
+    }
+
     selection.intervalMode = ListView.IntervalMode.Single
     selection.reactions += {
       case ListSelectionChanged(source, range, live) if !live && selection.items.nonEmpty => runInBackground {
         infoPanel.track = selection.items.head.track
       }
     }
+
+    mouse.clicks.reactions += {
+      case MouseClicked(source, point, modifiers, clicks, triggersPopup) if modifiers == 256 =>
+        selectIndices(this.peer.locationToIndex(point))
+        popupMenu.show(source, point.x, point.y)
+    }
+    listenTo(mouse.clicks)
   }
   val searchAction = Action("Search")(runInBackground {
     val query = s"(?i:${searchBar.text})".r.unanchored
     resultsList.listData = for (
       user <- usersList.listData;
       playlist <- user.playlists;
-      track <- playlist.tracks
+      (track, index) <- playlist.tracks.zipWithIndex
       if (query.matches(track.track.name)
         || track.track.artists.exists(artist => query.matches(artist.name))
         || query.matches(track.track.album.name))
-    ) yield SearchResult(user, playlist, track)
+    ) yield SearchResult(user, playlist, track, index)
     tabView.pages(1).title = s"Search results (${resultsList.listData.length})"
     tabView.selection.index = 1
   })
@@ -199,64 +265,40 @@ object Spotifinder extends MainFrame with App {
     }) = BorderPanel.Position.Center
   }
 
-  class EditDialog[A <: api.SpotifyItem](_title: String, _factory: String => A, var data: collection.mutable.Seq[A], _update: Seq[A] => Unit) extends Dialog(Spotifinder.this) {
-    title = _title
-    modal = true
-    contents = ScrollPane(new Table {
-      selection.elementMode = Table.ElementMode.None
-      model = new AbstractTableModel {
-        def getRowCount: Int = data.length + 1
-        def getColumnCount: Int = 2
-        override def getColumnName(columnIndex: Int): String = Seq("name", "id")(columnIndex)
-        override def isCellEditable(rowIndex: Int, columnIndex: Int): Boolean = columnIndex == 1
-        def getValueAt(rowIndex: Int, columnIndex: Int): AnyRef = {
-          if (rowIndex == data.length) ""
-          else Seq(data(rowIndex).name, data(rowIndex).id)(columnIndex)
-        }
-        override def setValueAt(idAny: Any, rowIndex: Int, columnIndex: Int): Unit = {
-          val id = idAny.asInstanceOf[String]
-          val itemOption =
-            if (id.isEmpty) None
-            else Try(_factory(id)).toOption
-
-          itemOption match {
-            case Some(item) if rowIndex < data.length =>
-              data(rowIndex) = item
-            case Some(item) =>
-              data :+= item
-            case None if rowIndex < data.length =>
-              data = data.zipWithIndex.collect {case (u, i) if i != rowIndex => u}
-            case _ =>
-          }
-
-          _update(data.toSeq)
-          usersList.listData = privatePlaylists +: users
-          playlistsList.listData = Seq()
-          songsList.listData = Seq()
-          infoPanel.track = None
-        }
-      }
-    })
-  }
-
   menuBar = new MenuBar() {
     contents ++= Seq(
       new Menu("File") {
         contents ++= Seq(
           new MenuItem(Action("Edit private playlists...") {
             new EditDialog[api.Playlist](
+              Spotifinder.this,
               "Edit private playlists",
-              api.Playlist.fromId,
+              api.Playlist.fromURI,
               privatePlaylists.playlists.to(collection.mutable.Seq),
-              data => privatePlaylists = PrivatePlaylists(data)
+              data => {
+                privatePlaylists = PrivatePlaylists(data)
+
+                usersList.listData = privatePlaylists +: users
+                playlistsList.listData = Seq()
+                songsList.playlist = None
+                infoPanel.track = None
+              }
             ).open()
           }),
           new MenuItem(Action("Edit users...") {
             new EditDialog[api.User](
+              Spotifinder.this,
               "Edit users",
-              api.User.apply,
+              api.User.fromURI,
               users.to(collection.mutable.Seq),
-              data => users = data
+              data => {
+                users = data
+
+                usersList.listData = privatePlaylists +: users
+                playlistsList.listData = Seq()
+                songsList.playlist = None
+                infoPanel.track = None
+              }
             ).open()
           }),
           new MenuItem(Action("Save lists...") {
@@ -268,12 +310,12 @@ object Spotifinder extends MainFrame with App {
             ) == Dialog.Result.Yes) {
               playlistsFile.getParentFile.mkdirs()
               val playlistsWriter = new PrintWriter(playlistsFile)
-              privatePlaylists.playlists.foreach(pl => playlistsWriter.println(pl.id))
+              privatePlaylists.playlists.foreach(playlist => playlistsWriter.println(playlist.uri))
               playlistsWriter.close()
 
               usersFile.getParentFile.mkdirs()
               val usersWriter = new PrintWriter(usersFile)
-              users.foreach(pl => usersWriter.println(pl.id))
+              users.foreach(user => usersWriter.println(user.uri))
               usersWriter.close()
             }
           })
