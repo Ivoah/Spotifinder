@@ -29,8 +29,8 @@ case class Spotify(private val client_id: String, scope: String = "") {
       (JsPath \ "expires_on").readNullable[Long]
     ) { (access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String, expires_on: Option[Long]) =>
     expires_on match {
-      case Some(timestamp) => Token(access_token, token_type, scope, expires_in, refresh_token)(timestamp)
-      case None => Token(access_token, token_type, scope, expires_in, refresh_token)()
+      case Some(timestamp) => Token(access_token, token_type, scope, expires_in, refresh_token, timestamp)
+      case None => Token(access_token, token_type, scope, expires_in, refresh_token)
     }
   }
   private implicit val tokenWrites: Writes[Token] = (
@@ -41,8 +41,12 @@ case class Spotify(private val client_id: String, scope: String = "") {
       (JsPath \ "refresh_token").write[String] and
       (JsPath \ "expires_on").write[Long]
     ){token: Token => (token.access_token, token.token_type, token.scope, token.expires_in, token.refresh_token, token.expires_on)}
-  private case class Token(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String)
-                          (val expires_on: Long = Instant.now.getEpochSecond + expires_in) {
+  private object Token {
+    def apply(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String): Token = {
+      Token(access_token, token_type, scope, expires_in, refresh_token, Instant.now.getEpochSecond + expires_in)
+    }
+  }
+  private case class Token(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String, val expires_on: Long) {
     override def toString: String = access_token
   }
 
