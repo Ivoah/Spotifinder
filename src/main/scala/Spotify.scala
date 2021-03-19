@@ -11,7 +11,7 @@ import scala.io._
 import scala.util.{Random, Try}
 import java.time.Instant
 
-trait SpotifyItem {
+sealed trait SpotifyItem {
   val id: String
   val name: String
   val uri: String
@@ -33,14 +33,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
       case None => Token(access_token, token_type, scope, expires_in, refresh_token)
     }
   }
-  private implicit val tokenWrites: Writes[Token] = (
-    (JsPath \ "access_token").write[String] and
-      (JsPath \ "token_type").write[String] and
-      (JsPath \ "scope").write[String] and
-      (JsPath \ "expires_in").write[Int] and
-      (JsPath \ "refresh_token").write[String] and
-      (JsPath \ "expires_on").write[Long]
-    ){token: Token => (token.access_token, token.token_type, token.scope, token.expires_in, token.refresh_token, token.expires_on)}
+  private implicit val tokenWrites: Writes[Token] = Json.writes[Token]
   private object Token {
     def apply(access_token: String, token_type: String, scope: String, expires_in: Int, refresh_token: String): Token = {
       Token(access_token, token_type, scope, expires_in, refresh_token, Instant.now.getEpochSecond + expires_in)
@@ -60,7 +53,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
       case Some(token) =>
         val new_token = refresh_token(token)
         _token = Some(new_token)
-        cache(MyPaths.dataDir.resolve("token.json").toString, Json.prettyPrint(Json.toJson(token)), force = true)
+        cache(MyPaths.dataDir.resolve("token.json").toString, Json.prettyPrint(Json.toJson(new_token)), force = true)
         new_token
       case None =>
         val token = get_token()
@@ -84,7 +77,6 @@ case class Spotify(private val client_id: String, scope: String = "") {
     } catch {
       case e: requests.RequestFailedException if e.response.statusCode == 400 =>
         println("Error refreshing token")
-        e.printStackTrace()
         get_token()
     }
   }

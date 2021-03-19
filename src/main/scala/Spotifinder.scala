@@ -1,5 +1,5 @@
-import java.awt.Image
-import javax.swing.ImageIcon
+import java.awt.{Image, KeyEventDispatcher, KeyboardFocusManager, Toolkit}
+import javax.swing.{ImageIcon, KeyStroke}
 import javax.swing.border.EmptyBorder
 import scala.io.Source
 import scala.swing._
@@ -165,6 +165,9 @@ object Spotifinder extends MainFrame with App {
       case MouseClicked(source, point, modifiers, clicks, triggersPopup) if modifiers == 256 =>
         selectIndices(this.peer.locationToIndex(point))
         popupMenu.show(source, point.x, point.y)
+      case MouseClicked(source, point, modifiers, clicks, triggersPopup) if clicks == 2 =>
+        selectIndices(this.peer.locationToIndex(point))
+        api.play(playlist.get, selection.leadIndex)
     }
     listenTo(mouse.clicks)
   }
@@ -226,21 +229,29 @@ object Spotifinder extends MainFrame with App {
       case MouseClicked(source, point, modifiers, clicks, triggersPopup) if modifiers == 256 =>
         selectIndices(this.peer.locationToIndex(point))
         popupMenu.show(source, point.x, point.y)
+      case MouseClicked(source, point, modifiers, clicks, triggersPopup) if clicks == 2 =>
+        selectIndices(this.peer.locationToIndex(point))
+        api.play(selection.items.head.playlist, selection.items.head.index)
     }
     listenTo(mouse.clicks)
   }
   val searchAction = Action("Search")(runInBackground {
-    val query = s"(?i:${searchBar.text})".r.unanchored
-    resultsList.listData = for (
-      user <- usersList.listData;
-      playlist <- user.playlists;
-      (track, index) <- playlist.tracks.zipWithIndex
-      if (query.matches(track.track.name)
-        || track.track.artists.exists(artist => query.matches(artist.name))
-        || query.matches(track.track.album.name))
-    ) yield SearchResult(user, playlist, track, index)
-    tabView.pages(1).title = s"Search results (${resultsList.listData.length})"
-    tabView.selection.index = 1
+    try {
+      val query = s"(?i:${searchBar.text})".r.unanchored
+      resultsList.listData = for (
+        user <- usersList.listData;
+        playlist <- user.playlists;
+        (track, index) <- playlist.tracks.zipWithIndex
+        if (query.matches(track.track.name)
+          || track.track.artists.exists(artist => query.matches(artist.name))
+          || query.matches(track.track.album.name))
+      ) yield SearchResult(user, playlist, track, index)
+      tabView.pages(1).title = s"Search results (${resultsList.listData.length})"
+      tabView.selection.index = 1
+    } catch {
+      case e: java.util.regex.PatternSyntaxException =>
+        Dialog.showMessage(this, e.getMessage, "Regex error", Dialog.Message.Error)
+    }
   })
   val searchBar: TextField = new TextField {action = searchAction}
   val searchButton: Button = new Button(searchAction)
@@ -331,7 +342,13 @@ object Spotifinder extends MainFrame with App {
               messageType = Dialog.Message.Warning
             ) == Dialog.Result.Yes) api.clearCache()
           }),
-          new MenuItem(Action("Change theme...") {ThemeSettings.showSettingsDialog(this.peer)})
+          new MenuItem(new Action("Change theme...") {
+            accelerator = Some(KeyStroke.getKeyStroke(',', Toolkit.getDefaultToolkit.getMenuShortcutKeyMaskEx))
+
+            def apply(): Unit = {
+              ThemeSettings.showSettingsDialog(Spotifinder.this.peer)
+            }
+          })
         )
       }
     )
