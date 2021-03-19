@@ -213,7 +213,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
       else JsObject(Seq("display_name" -> JsString("None")))
 
     val name: String = jsonObj("display_name").as[String]
-    lazy val playlists: Seq[Playlist] = if (id.nonEmpty) getPlaylists() else Seq()
+    def playlists: Seq[Playlist] = if (id.nonEmpty) getPlaylists() else Seq()
 
     val uri = s"spotify:user:$id"
 
@@ -236,7 +236,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
         case None => tracks
       }
     }
-    lazy val tracks: Seq[PlaylistItem] = getTracks()
+    def tracks: Seq[PlaylistItem] = getTracks()
 
     val uri = s"spotify:playlist:$id"
 
