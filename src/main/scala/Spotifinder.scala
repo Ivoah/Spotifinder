@@ -19,20 +19,18 @@ object Spotifinder extends MainFrame with App {
   val usersFile = MyPaths.dataDir.resolve("users.txt").toFile
 
   val emptyBorder = new EmptyBorder(0, 0, 0, 0)
-  val gear = new ImageIcon(getClass.getResource("gear.gif"))
 
   var queue = 0
   def runInBackground(block: => Unit): Unit = {
     new Thread {
       override def run(): Unit = {
-        val font = searchButton.font
-        searchButton.icon = gear
+        progressBar.indeterminate = true
         queue += 1
         block
         queue -= 1
         if (queue == 0) {
-          searchButton.icon = null
-          searchButton.font = font
+          progressBar.value = 0
+          progressBar.indeterminate = false
         }
       }
     }.start()
@@ -76,7 +74,7 @@ object Spotifinder extends MainFrame with App {
     def apply(playlists: Seq[api.Playlist]) = new PrivatePlaylists(playlists)
   }
   class PrivatePlaylists(_playlists: Seq[api.Playlist]) extends api.User("") {
-    override val name = "Private playlists"
+    override lazy val name = "Private playlists"
     override lazy val playlists: Seq[api.Playlist] = _playlists
   }
 
@@ -238,14 +236,21 @@ object Spotifinder extends MainFrame with App {
   val searchAction = Action("Search")(runInBackground {
     try {
       val query = s"(?i:${searchBar.text})".r.unanchored
-      resultsList.listData = for (
+      val playlists = usersList.listData.flatMap(_.playlists)
+      progressBar.max = playlists.length - 1
+      progressBar.value = 0
+      progressBar.indeterminate = false
+      resultsList.listData = (for (
         user <- usersList.listData;
-        playlist <- user.playlists;
+        playlist <- user.playlists.iterator.map { playlist =>
+          progressBar.value += 1
+          playlist
+        };
         (track, index) <- playlist.tracks.zipWithIndex
         if (query.matches(track.track.name)
-          || track.track.artists.exists(artist => query.matches(artist.name))
-          || query.matches(track.track.album.name))
-      ) yield SearchResult(user, playlist, track, index)
+            || track.track.artists.exists(artist => query.matches(artist.name))
+            || query.matches(track.track.album.name))
+      ) yield SearchResult(user, playlist, track, index)).toSeq
       tabView.pages(1).title = s"Search results (${resultsList.listData.length})"
       tabView.selection.index = 1
     } catch {
@@ -255,6 +260,7 @@ object Spotifinder extends MainFrame with App {
   })
   val searchBar: TextField = new TextField {action = searchAction}
   val searchButton: Button = new Button(searchAction)
+  val progressBar: ProgressBar = new ProgressBar {min = 0}
 
   val navView = makeSplitPanes(Seq(usersList, playlistsList, songsList))
   val searchView = ScrollPane(resultsList)
@@ -274,6 +280,7 @@ object Spotifinder extends MainFrame with App {
       continuousLayout = true
       resizeWeight = 1
     }) = BorderPanel.Position.Center
+    layout(progressBar) = BorderPanel.Position.South
   }
 
   menuBar = new MenuBar() {
