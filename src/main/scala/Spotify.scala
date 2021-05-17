@@ -50,16 +50,13 @@ case class Spotify(private val client_id: String, scope: String = "") {
   private def token: Token = {
     _token match {
       case Some(token) if Instant.now.getEpochSecond < token.expires_on =>
-        println("have token")
         token
       case Some(token) =>
-        println("refresh token")
         val new_token = refresh_token(token)
         _token = Some(new_token)
         cache(MyPaths.cacheDir.resolve("token.json").toString, Json.prettyPrint(Json.toJson(new_token)), force = true)
         new_token
       case None =>
-        println("get token")
         val token = get_token()
         _token = Some(token)
         cache(MyPaths.cacheDir.resolve("token.json").toString, Json.prettyPrint(Json.toJson(token)), force = true)
@@ -294,7 +291,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
 
 object Spotify {
   def main(args: Array[String]): Unit = {
-    val Seq(client_id, client_secret) = Util._with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
+    val client_id = Util._with(Source.fromResource("credentials.txt"), _.getLines().next)
     val api = Spotify(client_id, "user-modify-playback-state")
 
     val p = api.Playlist.fromURI("6EUZMn5NDzfRiH3OzhV6Vx").owner

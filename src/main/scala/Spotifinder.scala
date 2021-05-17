@@ -63,7 +63,7 @@ object Spotifinder extends MainFrame with App {
     }
   }
 
-  val Seq(client_id, client_secret) = Util._with(Source.fromResource("credentials.txt"), _.getLines().toSeq)
+  val client_id = Util._with(Source.fromResource("credentials.txt"), _.getLines().next)
   val api = Spotify(client_id, "user-modify-playback-state")
 
   case class SearchResult(user: api.User, playlist: api.Playlist, track: api.PlaylistItem, index: Int) {
