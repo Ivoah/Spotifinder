@@ -18,7 +18,7 @@ sealed trait SpotifyItem {
 }
 
 case class Spotify(private val client_id: String, scope: String = "") {
-  private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'")
+  private implicit val dateReads: Reads[Date] = Reads.dateReads("yyyy-MM-dd'T'HH:mm:ss'Z'Z", s => s"$s-0000")
 
   private implicit val tokenReads: Reads[Token] = (
     (JsPath \ "access_token").read[String] and
@@ -102,17 +102,8 @@ case class Spotify(private val client_id: String, scope: String = "") {
     val out = new PrintWriter(socket.getOutputStream)
     val GET = in.getLines().next()
     out.write(
-      """HTTP/1.1 200 OK
-        |Content-Type: text/html
-        |
-        |<html>
-        |    <head>
-        |        <title>Success!</title>
-        |    </head>
-        |    <body>
-        |        You can now close the webpage
-        |    </body>
-        |</html>
+      """HTTP/1.1 302
+        |Location: https://www.spotify.com
         |""".stripMargin
     )
     out.flush()
