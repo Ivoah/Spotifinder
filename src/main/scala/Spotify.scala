@@ -185,6 +185,14 @@ case class Spotify(private val client_id: String, scope: String = "") {
     )
   }
 
+  object PrivatePlaylists {
+    def apply(playlists: Seq[Playlist]) = new PrivatePlaylists(playlists)
+  }
+  class PrivatePlaylists(_playlists: Seq[Playlist]) extends User("") {
+    override lazy val name = "Private playlists"
+    override lazy val playlists: Seq[Playlist] = _playlists
+  }
+
   private implicit val userReads: Reads[User] = Json.reads[User]
   object User {
     def apply(id: String) = new User(id)

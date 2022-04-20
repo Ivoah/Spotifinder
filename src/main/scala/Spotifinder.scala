@@ -70,15 +70,7 @@ object Spotifinder extends MainFrame with App {
     override def toString: String = s"$user > $playlist > $track"
   }
 
-  object PrivatePlaylists {
-    def apply(playlists: Seq[api.Playlist]) = new PrivatePlaylists(playlists)
-  }
-  class PrivatePlaylists(_playlists: Seq[api.Playlist]) extends api.User("") {
-    override lazy val name = "Private playlists"
-    override lazy val playlists: Seq[api.Playlist] = _playlists
-  }
-
-  var privatePlaylists = PrivatePlaylists(Try(Util._with(
+  var privatePlaylists = api.PrivatePlaylists(Try(Util._with(
     Source.fromFile(playlistsFile),
     _.getLines().filter(!_.startsWith("#")).map(api.Playlist.fromURI).toSeq
   )).getOrElse(Seq()))
@@ -294,12 +286,17 @@ object Spotifinder extends MainFrame with App {
               api.Playlist.fromURI,
               privatePlaylists.playlists.to(collection.mutable.Seq),
               data => {
-                privatePlaylists = PrivatePlaylists(data)
+                privatePlaylists = api.PrivatePlaylists(data)
 
                 usersList.listData = privatePlaylists +: users
                 playlistsList.listData = Seq()
                 songsList.playlist = None
                 infoPanel.track = None
+
+                playlistsFile.getParentFile.mkdirs()
+                val playlistsWriter = new PrintWriter(playlistsFile)
+                privatePlaylists.playlists.foreach(playlist => playlistsWriter.println(playlist.uri))
+                playlistsWriter.close()
               }
             ).open()
           }),
@@ -316,26 +313,13 @@ object Spotifinder extends MainFrame with App {
                 playlistsList.listData = Seq()
                 songsList.playlist = None
                 infoPanel.track = None
+
+                usersFile.getParentFile.mkdirs()
+                val usersWriter = new PrintWriter(usersFile)
+                users.foreach(user => usersWriter.println(user.uri))
+                usersWriter.close()
               }
             ).open()
-          }),
-          new MenuItem(Action("Save lists...") {
-            if (Dialog.showConfirmation(
-              this,
-              "Are you sure you want to overwrite your saved playlists and users?",
-              "Save lists",
-              messageType = Dialog.Message.Warning
-            ) == Dialog.Result.Yes) {
-              playlistsFile.getParentFile.mkdirs()
-              val playlistsWriter = new PrintWriter(playlistsFile)
-              privatePlaylists.playlists.foreach(playlist => playlistsWriter.println(playlist.uri))
-              playlistsWriter.close()
-
-              usersFile.getParentFile.mkdirs()
-              val usersWriter = new PrintWriter(usersFile)
-              users.foreach(user => usersWriter.println(user.uri))
-              usersWriter.close()
-            }
           })
         )
       },
