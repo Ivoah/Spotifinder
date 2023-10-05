@@ -1,3 +1,5 @@
+package net.ivoah.spotifinder
+
 import java.nio.file.{Path, Paths}
 
 object MyPaths {

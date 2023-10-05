@@ -1,3 +1,5 @@
+package net.ivoah.spotifinder
+
 import java.awt.{Image, KeyEventDispatcher, KeyboardFocusManager, Toolkit}
 import javax.swing.{ImageIcon, KeyStroke}
 import javax.swing.border.EmptyBorder
@@ -119,7 +121,7 @@ object Spotifinder extends MainFrame with App {
     listenTo(mouse.clicks)
   }
 
-  val songsList = new ListView[api.PlaylistItem]() {
+  class SongsList extends ListView[api.PlaylistItem]() {
     private var _playlist: Option[api.Playlist] = None
     def playlist: Option[api.Playlist] = _playlist
     def playlist_=(new_playlist: Option[api.Playlist]): Unit = {
@@ -161,9 +163,10 @@ object Spotifinder extends MainFrame with App {
     }
     listenTo(mouse.clicks)
   }
+  val songsList = new SongsList
 
-  val infoPanel = new BoxPanel(Orientation.Vertical) {
-    private val missing = new ImageIcon(new ImageIcon(getClass.getResource("missing.png")).getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
+  class InfoPanel extends BoxPanel(Orientation.Vertical) {
+    private val missing = new ImageIcon(new ImageIcon(getClass.getResource("/missing.png")).getImage.getScaledInstance(250, 250, Image.SCALE_SMOOTH))
 
     private var _track: Option[api.PlaylistItem] = None
     def track: Option[api.PlaylistItem] = _track
@@ -195,6 +198,7 @@ object Spotifinder extends MainFrame with App {
     contents += artwork
     contents ++= labels.values
   }
+  val infoPanel = new InfoPanel
 
   val resultsList = new ListView[SearchResult] {
     private val popupMenu = new PopupMenu {
@@ -346,7 +350,7 @@ object Spotifinder extends MainFrame with App {
   }
 
   title = "Spotifinder"
-  iconImage = new ImageIcon(getClass.getResource("icon.png")).getImage
+  iconImage = new ImageIcon(getClass.getResource("/icon.png")).getImage
   centerOnScreen()
   open()
 }

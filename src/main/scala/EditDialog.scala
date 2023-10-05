@@ -1,3 +1,5 @@
+package net.ivoah.spotifinder
+
 import Spotifinder.ScrollPane
 
 import javax.swing.table.AbstractTableModel

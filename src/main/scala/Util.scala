@@ -1,3 +1,5 @@
+package net.ivoah.spotifinder
+
 import scala.io.Source
 
 object Util {

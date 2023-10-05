@@ -1,15 +1,15 @@
+package net.ivoah.spotifinder
+
 import play.api.libs.functional.syntax.toFunctionalBuilderOps
+import play.api.libs.json.*
 
-import java.util.Date
-import play.api.libs.json._
-
-import java.util.Base64
+import java.io.*
+import java.net.*
 import java.security.MessageDigest
-import java.net._
-import java.io._
-import scala.io._
-import scala.util.{Random, Try}
 import java.time.Instant
+import java.util.{Base64, Date}
+import scala.io.*
+import scala.util.{Random, Try}
 
 sealed trait SpotifyItem {
   val id: String
@@ -74,7 +74,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
           "client_id" -> client_id
         )
       )
-      Json.parse(post.text).as[Token]
+      Json.parse(post.text()).as[Token]
     } catch {
       case e: requests.RequestFailedException if e.response.statusCode == 400 =>
         println("Error refreshing token")
@@ -122,7 +122,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
         "code_verifier" -> code_verifier
       )
     )
-    Json.parse(post.text).as[Token]
+    Json.parse(post.text()).as[Token]
   }
 
   if (!MyPaths.cacheDir.toFile.exists) MyPaths.cacheDir.toFile.mkdirs()
@@ -144,7 +144,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
   }
 
   private def get(url: String): String = {
-    cache(url.stripPrefix("https://") + ".json", requests.get(url, headers = Map("Authorization" -> s"Bearer $token")).text)
+    cache(url.stripPrefix("https://") + ".json", requests.get(url, headers = Map("Authorization" -> s"Bearer $token")).text())
   }
 
   def clearCache(): Unit = {
@@ -199,7 +199,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
     def unapply(user: User): Option[String] = Some(user.id)
     def fromURI(uri: String): User = new User(uri.split(':').last)
   }
-  class User(val id: String) extends SpotifyItem {
+  case class User(val id: String) extends SpotifyItem {
     private def getPlaylists(url: String = s"https://api.spotify.com/v1/users/$id/playlists"): Seq[Playlist] = {
       val jsonObj = Json.parse(get(url))
       val playlists = jsonObj("items").as[Seq[Playlist]]
@@ -248,7 +248,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
       (JsPath \ "name").read[String] and
       (JsPath \ "images").read[JsValue]
     ) { (id: String, name: String, artwork: JsValue) =>
-    Album(id, name, artwork.as[Seq[URL]].headOption.getOrElse(getClass.getResource("missing.png")))
+    Album(id, name, artwork.as[Seq[URL]].headOption.getOrElse(getClass.getResource("/missing.png")))
   }
   object Album {
     def fromURI(uri: String): Album = {
@@ -288,11 +288,11 @@ case class Spotify(private val client_id: String, scope: String = "") {
   }
 }
 
-object Spotify {
-  def main(args: Array[String]): Unit = {
-    val client_id = Util._with(Source.fromResource("credentials.txt"), _.getLines().next)
-    val api = Spotify(client_id, "user-modify-playback-state")
-
-    val p = api.Playlist.fromURI("6EUZMn5NDzfRiH3OzhV6Vx").owner
-  }
-}
+//object Spotify {
+//  def main(args: Array[String]): Unit = {
+//    val client_id = Util._with(Source.fromResource("credentials.txt"), _.getLines().next)
+//    val api = Spotify(client_id, "user-modify-playback-state")
+//
+//    val p = api.Playlist.fromURI("6EUZMn5NDzfRiH3OzhV6Vx").owner
+//  }
+//}
