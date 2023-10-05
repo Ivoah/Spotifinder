@@ -1,15 +1,15 @@
 package net.ivoah.spotifinder
 
-import java.awt.{Image, KeyEventDispatcher, KeyboardFocusManager, Toolkit}
-import javax.swing.{ImageIcon, KeyStroke}
-import javax.swing.border.EmptyBorder
-import scala.io.Source
-import scala.swing._
-import scala.swing.event._
 import com.github.weisj.darklaf.LafManager
 import com.github.weisj.darklaf.settings.ThemeSettings
 
+import java.awt.{Image, Toolkit}
 import java.io.PrintWriter
+import javax.swing.border.EmptyBorder
+import javax.swing.{ImageIcon, KeyStroke}
+import scala.io.Source
+import scala.swing.*
+import scala.swing.event.*
 import scala.util.{Random, Try}
 
 object Spotifinder extends MainFrame with App {
