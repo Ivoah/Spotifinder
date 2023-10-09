@@ -12,7 +12,7 @@ import scala.swing.*
 import scala.swing.event.*
 import scala.util.{Random, Try}
 
-object Spotifinder extends MainFrame with App {
+class Spotifinder extends MainFrame {
   LafManager.installTheme(LafManager.getPreferredThemeStyle)
   LafManager.enabledPreferenceChangeReporting(true)
   LafManager.addThemePreferenceChangeListener(e => LafManager.installTheme(e.getPreferredThemeStyle))
@@ -36,12 +36,6 @@ object Spotifinder extends MainFrame with App {
         }
       }
     }.start()
-  }
-
-  object ScrollPane {
-    def apply(component: Component): ScrollPane = new ScrollPane(component) {
-      border = emptyBorder
-    }
   }
 
   def makeSplitPanes(lists: Seq[Component]): SplitPane = {
@@ -352,5 +346,4 @@ object Spotifinder extends MainFrame with App {
   title = "Spotifinder"
   iconImage = new ImageIcon(getClass.getResource("/icon.png")).getImage
   centerOnScreen()
-  open()
 }

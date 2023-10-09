@@ -1,7 +1,5 @@
 package net.ivoah.spotifinder
 
-import Spotifinder.ScrollPane
-
 import javax.swing.table.AbstractTableModel
 import scala.swing.{Dialog, Table, Window}
 import scala.util.Try
