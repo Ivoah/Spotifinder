@@ -13,7 +13,7 @@ import scala.util.{Random, Try}
 
 sealed trait SpotifyItem {
   val id: String
-  val name: String
+  def name: String
   val uri: String
 }
 
@@ -90,7 +90,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
       s"https://accounts.spotify.com/authorize?${Map(
         "client_id" -> client_id,
         "response_type" -> "code",
-        "redirect_uri" -> "http://localhost:5122",
+        "redirect_uri" -> "http://127.0.0.1:5122",
         "code_challenge_method" -> "S256",
         "code_challenge" -> code_challenge,
         "scope" -> scope
@@ -118,7 +118,7 @@ case class Spotify(private val client_id: String, scope: String = "") {
         "client_id" -> client_id,
         "grant_type" -> "authorization_code",
         "code" -> code,
-        "redirect_uri" -> "http://localhost:5122",
+        "redirect_uri" -> "http://127.0.0.1:5122",
         "code_verifier" -> code_verifier
       )
     )
